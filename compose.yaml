@@ -1,0 +1,39 @@
+name: payment-devops-lab
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: labuser
+      POSTGRES_PASSWORD: ${LAB_DB_PASSWORD:?Set LAB_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - lab-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labuser -d payments"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  init:
+    build: .
+    image: lab-payments:local
+    command: ["--init-db"]
+    environment:
+      ConnectionStrings__LabDb: Host=db;Port=5432;Database=payments;Username=labuser;Password=${LAB_DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    build: .
+    image: lab-payments:local
+    environment:
+      ConnectionStrings__LabDb: Host=db;Port=5432;Database=payments;Username=labuser;Password=${LAB_DB_PASSWORD}
+      APP_RELEASE: compose-v1
+    ports:
+      - "127.0.0.1:5000:8080"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+volumes:
+  lab-db:

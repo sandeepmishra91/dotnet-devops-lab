@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: schema-__RELEASE__
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: initialize
+          image: __IMAGE__
+          imagePullPolicy: IfNotPresent
+          args: ["--init-db"]
+          env:
+            - name: ConnectionStrings__LabDb
+              valueFrom:
+                secretKeyRef:
+                  name: lab-db
+                  key: connection

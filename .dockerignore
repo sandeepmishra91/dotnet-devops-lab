@@ -1,0 +1,11 @@
+**/bin
+**/obj
+.git
+.env
+.env.*
+**/*kubeconfig*
+**/*.pem
+**/*.key
+TestResults
+jenkins-secrets
+release-*.yaml

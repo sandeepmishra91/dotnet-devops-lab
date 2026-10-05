@@ -41,7 +41,7 @@ app.MapGet("/health/ready", async Task<IResult> (LabDbContext db, ILogger<Progra
 app.MapGet("/version", () => Results.Ok(new
 {
     release = app.Configuration["APP_RELEASE"] ?? "local-v1",
-    message = "docker-cache-v2",
+    message = "jenkins-auto-v3",
     instance = Environment.MachineName
 }));
 

@@ -82,8 +82,15 @@ pipeline {
           sh '''
             set -eu
             NODE_IP=$(kubectl get node devops-lab-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
-            curl --fail --silent --show-error "http://$NODE_IP:30080/health/ready"
-            curl --fail --silent --show-error "http://$NODE_IP:30080/version"
+            curl --fail --silent --show-error \
+              --connect-timeout 5 --max-time 10 \
+              --retry 5 --retry-delay 3 --retry-all-errors \
+              "http://$NODE_IP:30080/health/ready"
+
+            curl --fail --silent --show-error \
+              --connect-timeout 5 --max-time 10 \
+              --retry 5 --retry-delay 3 --retry-all-errors \
+              "http://$NODE_IP:30080/version"
             docker run --rm -i --network kind python:3.12-alpine \
               python - "http://$NODE_IP:30080" < scripts/smoke.py
             kubectl -n devops-lab get deployment,pods,services

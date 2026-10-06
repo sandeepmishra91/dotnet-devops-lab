@@ -66,13 +66,35 @@ pipeline {
     stage('Deploy') {
       steps {
         withCredentials([file(credentialsId: 'lab-kubeconfig', variable: 'KUBECONFIG')]) {
-          sh '''
-            set -eu
-            sed -e "s|__IMAGE__|$IMAGE|g" -e "s|__RELEASE__|$RELEASE|g" \
-              k8s/api.yaml > release-api.yaml
-            kubectl -n devops-lab apply -f release-api.yaml
-            kubectl -n devops-lab rollout status deployment/payments-api --timeout=180s
-          '''
+          script {
+            // Require a working baseline before attempting an update.
+            sh '''
+              kubectl -n devops-lab rollout status deployment/payments-api --timeout=60s
+            '''
+
+            env.PREVIOUS_API_REVISION = sh(
+              returnStdout: true,
+              script: '''
+                kubectl -n devops-lab get deployment payments-api -o go-template='{{index .metadata.annotations "deployment.kubernetes.io/revision"}}'
+              '''
+            ).trim()
+
+            if (!(env.PREVIOUS_API_REVISION ==~ /[0-9]+/)) {
+              error('Cannot determine the previous API revision.')
+            }
+
+            echo "Previous working API revision: ${env.PREVIOUS_API_REVISION}"
+
+            // Failures after this point should trigger API rollback.
+            env.API_DEPLOY_STARTED = 'true'
+
+            sh '''
+              set -eu
+              sed -e "s|__IMAGE__|$IMAGE|g" -e "s|__RELEASE__|$RELEASE|g" k8s/api.yaml > release-api.yaml
+              kubectl -n devops-lab apply -f release-api.yaml
+              kubectl -n devops-lab rollout status deployment/payments-api --timeout=180s
+            '''
+          }
         }
       }
     }
@@ -102,6 +124,27 @@ pipeline {
   post {
     always {
       archiveArtifacts artifacts: 'TestResults/**/*.trx,release-*.yaml', allowEmptyArchive: true
+    }
+
+    failure {
+      script {
+        if (env.API_DEPLOY_STARTED == 'true') {
+          echo "Deployment failed. Restoring API revision ${env.PREVIOUS_API_REVISION}"
+
+          withCredentials([file(credentialsId: 'lab-kubeconfig', variable: 'KUBECONFIG')]) {
+            sh '''
+              set -eu
+              kubectl -n devops-lab rollout undo deployment/payments-api --to-revision="$PREVIOUS_API_REVISION"
+              kubectl -n devops-lab rollout status deployment/payments-api --timeout=180s
+              kubectl -n devops-lab get deployment payments-api
+            '''
+          }
+
+          echo 'API rollback completed. This build remains FAILED.'
+        } else {
+          echo 'API deployment did not start; no API rollback needed.'
+        }
+      }
     }
   }
 }

@@ -116,6 +116,8 @@ pipeline {
             docker run --rm -i --network kind python:3.12-alpine \
               python - "http://$NODE_IP:30080" < scripts/smoke.py
             kubectl -n devops-lab get deployment,pods,services
+                        echo 'Intentional drill: fail after deployment and smoke requests'
+            exit 1
           '''
         }
       }

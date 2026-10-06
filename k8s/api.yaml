@@ -46,7 +46,7 @@ spec:
             failureThreshold: 30
           readinessProbe:
             httpGet:
-              path: /health/ready
+              path: /health/readiness-drill-missing
               port: 8080
             periodSeconds: 5
             timeoutSeconds: 3

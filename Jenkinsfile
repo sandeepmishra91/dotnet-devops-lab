@@ -15,7 +15,8 @@ pipeline {
         checkout scm
         script {
           env.RELEASE = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim() + '-' + env.BUILD_NUMBER
-          env.IMAGE = 'lab-payments:' + env.RELEASE
+          env.REGISTRY_REPOSITORY = 'docker.io/sandeepmishra2191/lab-payments'
+          env.IMAGE = env.REGISTRY_REPOSITORY + ':' + env.RELEASE
           env.TEST_IMAGE = 'lab-payments-tests:' + env.RELEASE
           env.TEST_CONTAINER = 'lab-tests-' + env.RELEASE
         }
@@ -44,8 +45,42 @@ pipeline {
     stage('Runtime image') {
       steps { sh 'docker build --target runtime -t "$IMAGE" .' }
     }
-    stage('Load image into practice cluster') {
-      steps { sh 'kind load docker-image "$IMAGE" --name devops-lab' }
+        stage('Push image to registry') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'lab-dockerhub',
+          usernameVariable: 'REGISTRY_USER',
+          passwordVariable: 'REGISTRY_TOKEN'
+        )]) {
+          sh '''
+            set +x
+            set -eu
+            umask 077
+
+            export DOCKER_CONFIG="$(mktemp -d /tmp/lab-registry.XXXXXX)"
+            trap 'rm -rf -- "$DOCKER_CONFIG"' EXIT
+
+            printf '%s' "$REGISTRY_TOKEN" |
+              docker login --username "$REGISTRY_USER" --password-stdin
+
+            docker image push "$IMAGE"
+
+            docker buildx imagetools inspect "$IMAGE" \
+              --format '{{.Manifest.Digest}}' > release-image-digest.txt
+          '''
+        }
+
+        script {
+          def publishedDigest = readFile('release-image-digest.txt').trim()
+
+          if (!(publishedDigest ==~ /sha256:[0-9a-f]{64}/)) {
+            error('Registry returned an invalid image digest.')
+          }
+
+          env.IMAGE = env.REGISTRY_REPOSITORY + '@' + publishedDigest
+          echo "Deploying published image: ${env.IMAGE}"
+        }
+      }
     }
     stage('Database initialization') {
       steps {
@@ -123,7 +158,7 @@ pipeline {
   }
   post {
     always {
-      archiveArtifacts artifacts: 'TestResults/**/*.trx,release-*.yaml', allowEmptyArchive: true
+      archiveArtifacts artifacts: 'TestResults/**/*.trx,release-*.yaml,release-image-digest.txt', allowEmptyArchive: true
     }
 
     failure {
